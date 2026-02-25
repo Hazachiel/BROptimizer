@@ -12,7 +12,7 @@ def clear_screen():
 clear_screen()
 
 # Quizá crear una excepción adecuadamente en vez de recurrir a una función
-def log_exception(e:Exception, exception_source:str = "Unknown", msg:str = "None", file:Path = Path()):
+def log_exception(e:Exception, exception_source:str = "Unknown", msg:str = "None", file:Path|None = None):
     """ Función que se lanza cuando ocurre una excepción.
 
     Guarda un registro con la función donde ocurrió la excepción y un mensaje dentro de la carpeta logs del programa """
@@ -20,7 +20,7 @@ def log_exception(e:Exception, exception_source:str = "Unknown", msg:str = "None
     print(f"Ocurrió un error inesperado en: {exception_source}")
     print(f"Mensaje de error: \n {e}")
     with open(f"{get_logs_folder()}/error_{exception_source}.log", "a") as f:
-        if file != Path():
+        if file != None:
             print(f"Archivo afectado: {file}")
             f.write(f"Error Source:{exception_source}\nError Message: {msg}\nException Message: {e}\n")
         else:
@@ -54,31 +54,44 @@ def nwjs_available():
     else:
         return False
 
-def select_folder(folder_type: str) -> Path:
+def select_folder(folder_type: str) -> Path|None:
     """ Abre la ventana de dialogo de selección de directorios """
     tk_root = tk.Tk()
     tk_root.withdraw()
-    selected_folder = Path(filedialog.askdirectory(title=f"Selecciona la carpeta de {folder_type} o cancela para omitir"))
+    selected_folder = filedialog.askdirectory(title=f"Selecciona la carpeta de {folder_type} o cancela para omitir")
     tk_root.destroy()
-    return selected_folder
+    if len(selected_folder) == 0:
+        return None
+    return Path(selected_folder)
+
+def select_file(project_folder:Path, file_name:str, extension:str) -> Path|None:
+    """ Abre la ventana de dialogo de selección de archivos """
+    tk_root = tk.Tk()
+    tk_root.withdraw()
+    selected_file = filedialog.askopenfilename(title=f"Selecciona el archivo {file_name} correspondiente", filetypes=[(f"{extension}",f"{extension}")], initialdir=str(project_folder))
+    tk_root.destroy()
+    if len(selected_file) == 0:
+        return None
+    return Path(selected_file)
+
     
-def audio_processing_allowed(project_folder:Path) -> bool:
+def audio_processing_allowed(project_folder:Path|None) -> bool:
     """ Devuelve True si se cumplen los requisitos para que el programa ejecute las tareas relacionadas a audio """
-    if ffprobe_available() and ffmpeg_available() and project_folder != Path():
+    if ffprobe_available() and ffmpeg_available() and project_folder != None:
         return True
     else:
         return False
     
-def image_processing_allowed(project_folder:Path) -> bool:
+def image_processing_allowed(project_folder:Path|None) -> bool:
     """ Devuelve True si se cumplen los requisitos para que el programa ejecute las tareas relacionadas a imágenes """
-    if cwebp_available() and project_folder != Path():
+    if cwebp_available() and project_folder != None:
         return True
     else:
         return False
 
-def nwjs_processing_allowed(project_folder:Path):
+def nwjs_processing_allowed(project_folder:Path|None):
     """ Devuelve True si se cumplen los requisitos para que el programa ejecute las tareas relacionadas a NW.js """
-    if nwjs_available() and project_folder != Path():
+    if nwjs_available() and project_folder != None:
         return True
     else:
         return False
@@ -195,7 +208,7 @@ def delete_files_in_list(folder: Path, files_to_remove: tuple[str,...]) -> float
                     try:
                         files_size += file_path.stat().st_size
                         file_path.unlink()
-                        print(f"Eliminado: {file_path.name} de: {file_path.parent.relative_to(folder.parent)}")
+                        print(f"Eliminado: {file_path.relative_to(folder.parent)}")
                     except Exception as e:
                         log_exception(e, "delete_files_in_list", "file unlink", file_path)
     return files_size
@@ -211,16 +224,16 @@ def delete_folders_in_list(folder: Path, folders_to_remove: tuple[str,...]) -> f
                     folder_size += get_folder_size(current_folder)
                     try:
                         shutil.rmtree(current_folder, ignore_errors=True)
-                        print( f"Eliminado directorio: {current_folder.name} de {current_folder.parent}")
+                        print( f"Eliminado directorio: {current_folder}")
                     except Exception as e:
                         log_exception(e, "delete_folders_in_list", "rmtree in delete_folder", current_folder)
     return folder_size
 
-def get_localappdata() -> Path:
+def get_localappdata() -> Path|None:
     """ Devuelve un Path con la dirección de la carpeta ~/AppData/Local, y si no la encuentra devuelve un Path vacio """
     local_appdata = os.getenv("LOCALAPPDATA")
     if local_appdata == None:
-        return Path()
+        return None
     return Path(local_appdata)
 
 def setup_nwjs_game_launcher(project_folder: Path):
@@ -232,11 +245,11 @@ def setup_nwjs_game_launcher(project_folder: Path):
 
      - Instala el archivo .bat del launcher personalizado dentro de la caerpeta del juego """
     local_appdata = get_localappdata()
-    if local_appdata == Path():
+    if local_appdata == None:
         print("Selecciona la carpeta Local que está dentro de AppData")
         print("Usualmente en: C:/Users/(tu usuario)/AppData/Local")
         local_appdata = select_folder("Local AppData")
-        if local_appdata == Path() or local_appdata.name != "Local":
+        if local_appdata == None or local_appdata.name != "Local":
             return
         elif local_appdata.parent.name != "AppData" and not (local_appdata.parent/"LocalLow").exists() and not (local_appdata.parent/"Roaming").exists():
             return
@@ -380,20 +393,103 @@ def create_output_path(project_folder:Path, source_file_list:list[Path]):
             output_file.parent.mkdir(parents=True, exist_ok=True)
 
 def process_files(project_folder:Path, extensions:tuple[str,...], cwebp_flags:list[str]):
+    print("=== Preparando archivos ===")
     max_threads = get_cpu_threads()
     source_list = get_source_list(project_folder, extensions)
     if len(source_list) > 0:
         create_output_path(project_folder, source_list)
+        print("=== Iniciando procesamiento de archivos ===")
         with ThreadPoolExecutor(max_threads) as executor:
             executor.map(
                 partial(compress_file, project_folder, cwebp_flags),
                 source_list
                 )
+# END of function process_files()
+            
+def subfolder_of(folder:Path, parent:Path) -> bool:
+    if str(parent) in str(folder):
+        return True
+    return False
+
+def find_system_json(project_folder:Path) -> Path|None:
+    """ Busca el archivo System.json en rutas posibles, 
+    o solicita al usuario seleccionar el archivo manualmente si no lo encuentra. 
+    
+    Si no se encuentra y no se selecciona el archivo válido, devuelve un Path() vacío.
+    """
+    posible_system_paths = [
+        project_folder/"www/data/System.json", 
+        project_folder/"data/System.json"
+        ]
+    for system_json_path in posible_system_paths:
+        if system_json_path.exists():
+            return system_json_path
+    system_json_path = select_file(project_folder, "System.json", ".json")
+    if system_json_path != None:
+        if system_json_path.name.lower() == "system.json" and subfolder_of(system_json_path, project_folder):
+            return system_json_path
+    return None
+    
+
+def get_json_keyvalue(project_folder:Path, json_path:Path, key:str):
+    """ Acepta un Path apuntando a un archivo json.
+
+    Si la key (clave) se encuentra en el archivo json, devuelve el valor de la clave. 
+
+    Si el archivo no existe u ocurre un error al obtener el valor de la key (clave), Lanza una Excepción.
+    """        
+    try:
+        with json_path.open("r", encoding="utf-8") as f:
+            json_data = json.load(f)
+        value = json_data.get(key)
+        return value
+    except Exception as e:
+        # TODO
+        print("[X] ERROR: No se obtuvo el valor correcto de encriptación")
+        raise e
+            
+def update_system_json(project_folder:Path, key_list:list[str], value:bool):
+    print("=== Actualizando System.json ===")
+    system_json_path = find_system_json(project_folder)
+    if system_json_path == None:
+        print(f"[X] ERROR: No se ha seleccionado un System.json válido dentro de {project_folder}")
+        input("[!] La tarea no puede continuar. Presione una tecla para omitir la actualización de JSON")
+        return
+    try:
+        with system_json_path.open("r", encoding="utf-8") as f:
+            json_changed = False
+            system_json_data = json.load(f)
+        for key in key_list:
+            if system_json_data.get(key) != value:
+                system_json_data[key] = value
+                json_changed = True
+        if json_changed:
+            shutil.copy(system_json_path, system_json_path.with_suffix(".backup.json"))
+            with system_json_path.open("w", encoding="utf-8") as system_json:
+                json.dump(system_json_data, system_json, indent=4, ensure_ascii=False)
+    except json.JSONDecodeError as e:
+        log_exception(e, "update_system_json", "json decode", system_json_path)
+    except Exception as e:
+        log_exception(e,"update_system_json", "unknown json error", system_json_path)
+
+def get_rpgm_encryption_key(project_folder:Path) -> str|None:
+    system_json = find_system_json(project_folder)
+    if system_json == None:
+        return None
+    try:
+        encryption_key = get_json_keyvalue(project_folder, system_json, "encryptionKey")
+        encryption_key = str(encryption_key)
+        if len(encryption_key) == 32:
+            return encryption_key
+    except Exception as e:
+        print("No se ha encontrado la clave de encriptado")
+        return None
+
 
 def compare_project_size(original_size:float, new_size:float):
     # Mostrar espacio en disco ahorrado
     print(f"Tamaño de archivos de medios originales: {original_size}MB")
-    print(f"Tamaño de archivos de medios comprimidos: {original_size-new_size}MB")
+    print(f"Tamaño de archivos de medios comprimidos: {round(original_size-new_size, ndigits=2)}MB")
     print(f"Al reemplazar los originales se ha ahorrado en total: {new_size}MB")
 
 def menu_image_profile(image_profile_name: str, cwebp_flags: list[str]) -> tuple[str, list[str]]:
@@ -426,12 +522,12 @@ def menu_image_profile(image_profile_name: str, cwebp_flags: list[str]) -> tuple
             print("Entrada inválida. Ingresa un número.")
 # END of function chose_image_profile
 
-def main_menu(project_folder:Path = Path()):
+def main_menu(project_folder:Path|None = None):
     image_profile_name:str = get_default_image_profile_name()
     cwebp_flags:list[str] = get_default_cwebp_flags()
     compressed_folder:Path = get_compressed_folder()
     initial_project_size:float = 0.0
-    if project_folder != Path():
+    if project_folder != None:
         initial_project_size = get_folder_size(project_folder)
     project_processed:bool = False
     while True:
@@ -439,15 +535,15 @@ def main_menu(project_folder:Path = Path()):
         print("     MENU PRINCIPAL")
         print("="*50)
 
-        if project_folder != Path(): 
+        if project_folder != None: 
             print(f"Tamaño inicial del proyecto: {initial_project_size}MB", \
                   f"\nTamaño Actual del proyecto: {get_folder_size(project_folder)}MB" if project_processed else "")
 
         options_range:list[int] = [0,1,2]
-        print(f"1 - Seleccionar ruta del proyecto. Actual:", f"{project_folder}" if project_folder != Path() else "NO SELECCIONADA")
+        print(f"1 - Seleccionar ruta del proyecto. Actual:", f"{project_folder}" if project_folder != None else "NO SELECCIONADA")
         print(f"2 - Menu opciones de calidad de conversión de imágenes. Preset Actual: {image_profile_name}")
         
-        if project_folder != Path():
+        if project_folder != None:
             if image_processing_allowed(project_folder):
                 print(f"3 - Iniciar compresión de Imágenes")
                 options_range.append(3)
@@ -480,48 +576,52 @@ def main_menu(project_folder:Path = Path()):
                 elif option_main == 1:
                     print("Seleccionando directorio del proyecto")
                     new_project_folder = select_folder("Proyecto")
-                    if new_project_folder != project_folder and new_project_folder != Path():
+                    if new_project_folder != project_folder and new_project_folder != None:
                         delete_folder_content(compressed_folder)
                         project_folder = new_project_folder
                         initial_project_size = get_folder_size(project_folder)
                         project_processed = False
-                elif option_main == 2:
-                    image_profile_name, cwebp_flags = menu_image_profile(image_profile_name, cwebp_flags)
-                elif option_main == 3:
-                    print("Ejecutando tarea de compresión de imágenes...")
-                    process_files(project_folder, get_image_extensions(), cwebp_flags)
-                    compare_project_size(initial_project_size, get_folder_size(project_folder))
-                    delete_folder_content(compressed_folder)
-                    project_processed = True
-                    input("\nTarea Finalizada. Presiona Enter para continuar")
-                elif option_main == 4:
-                    print("Ejecutando tarea de compresión de audio...")
-                    process_files(project_folder, get_audio_extensions(), cwebp_flags)
-                    compare_project_size(initial_project_size, get_folder_size(project_folder))
-                    delete_folder_content(compressed_folder)
-                    project_processed = True
-                    input("\nTarea Finalizada. Presiona Enter para continuar")
-                elif option_main == 5:
-                    print("Ejecutando tarea de compresión de imágenes y audio...")
-                    img_and_aud_extensions = (*get_image_extensions(), *get_audio_extensions())
-                    process_files(project_folder, img_and_aud_extensions, cwebp_flags)
-                    compare_project_size(initial_project_size, get_folder_size(project_folder))
-                    delete_folder_content(compressed_folder)
-                    project_processed = True
-                    input("\nTarea Finalizada. Presiona Enter para continuar")
-                elif option_main == 6:
-                    print("Preparando el entorno del juego...")
-                    setup_nwjs_game_launcher(project_folder)
-                    print("nwjs_game_launch instalado y configurado")
-                    subprocess.run(f"{project_folder/get_game_launch_file().name}", cwd=f"{project_folder}")
-                    print("Juego lanzado")
-                elif option_main == 7:
-                    print(f"Borrando archivos de NW.js locales en {project_folder.name}...")
-                    delete_files_in_list(project_folder, get_nwjs_files())
-                    delete_folders_in_list(project_folder, get_nwjs_folders())
-                    print(f"Archivos locales de NW.js eliminados de {project_folder.name}")
-                    compare_project_size(initial_project_size, get_folder_size(project_folder))
-                    project_processed = True
+                elif project_folder != None:
+                    if option_main == 2:
+                        image_profile_name, cwebp_flags = menu_image_profile(image_profile_name, cwebp_flags)
+                    elif option_main == 3:
+                        print("Ejecutando tarea de compresión de imágenes...")
+                        process_files(project_folder, get_image_extensions(), cwebp_flags)
+                        update_system_json(project_folder, ["hasEncryptedImages"], False)
+                        compare_project_size(initial_project_size, get_folder_size(project_folder))
+                        delete_folder_content(compressed_folder)
+                        project_processed = True
+                        input("\nTarea Finalizada. Presiona Enter para continuar")
+                    elif option_main == 4:
+                        print("Ejecutando tarea de compresión de audio...")
+                        process_files(project_folder, get_audio_extensions(), cwebp_flags)
+                        update_system_json(project_folder, ["hasEncryptedAudio"], False)
+                        compare_project_size(initial_project_size, get_folder_size(project_folder))
+                        delete_folder_content(compressed_folder)
+                        project_processed = True
+                        input("\nTarea Finalizada. Presiona Enter para continuar")
+                    elif option_main == 5:
+                        print("Ejecutando tarea de compresión de imágenes y audio...")
+                        img_and_aud_extensions = (*get_image_extensions(), *get_audio_extensions())
+                        process_files(project_folder, img_and_aud_extensions, cwebp_flags)
+                        update_system_json(project_folder, ["hasEncryptedImages", "hasEncryptedAudio"], False)
+                        compare_project_size(initial_project_size, get_folder_size(project_folder))
+                        delete_folder_content(compressed_folder)
+                        project_processed = True
+                        input("\nTarea Finalizada. Presiona Enter para continuar")
+                    elif option_main == 6:
+                        print("Preparando el entorno del juego...")
+                        setup_nwjs_game_launcher(project_folder)
+                        print("nwjs_game_launch instalado y configurado")
+                        subprocess.run(f"{project_folder/get_game_launch_file().name}", cwd=f"{project_folder}")
+                        print("Juego lanzado")
+                    elif option_main == 7:
+                        print(f"Borrando archivos de NW.js locales en {project_folder.name}...")
+                        delete_files_in_list(project_folder, get_nwjs_files())
+                        delete_folders_in_list(project_folder, get_nwjs_folders())
+                        print(f"Archivos locales de NW.js eliminados de {project_folder.name}")
+                        compare_project_size(initial_project_size, get_folder_size(project_folder))
+                        project_processed = True
                 elif option_main == 8:
                     print("Borrando logs...")
                     delete_folder_content(get_logs_folder())
@@ -542,3 +642,11 @@ print("=============================================")
 print("Programa terminado. Presione enter para salir")
 input("=============================================")
 sys.exit()
+
+# TODO
+# Agregar nuevo menú para manejar archivos encriptados
+# Buscar en System.json: hasEncryptedImages, hasEncryptedAudio, y encryptionKey
+# Desencriptar archivos y volver a encriptarlos de ser necesario
+# Crear una función para procesar archivos de video
+# Manejar adecuadamente excepciones marcadas con "# TODO"
+# Otras cosas más...
