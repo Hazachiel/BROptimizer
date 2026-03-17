@@ -1,9 +1,11 @@
 import os, sys, subprocess, shutil, json
+import piexif
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
+from PIL import Image
 
 def clear_screen():
     """ Just a function to clear screen """
@@ -25,6 +27,9 @@ def log_exception(e:Exception, exception_source:str = "Unknown", msg:str = "None
             f.write(f"Error Source:{exception_source}\nError Message: {msg}\nException Message: {e}\n")
         else:
             f.write(f"Error Source:{exception_source}\nError Message: {msg}\nAffected file: {file}\nException Message: {e}\n")
+
+def get_custom_mark() -> str:
+    return "BROPTIMIZED"
 
 def cwebp_available():
     """ Devuelve True si existe cwebp en las variables de entorno del sistema """
@@ -190,22 +195,14 @@ def get_nwjs_folders() -> tuple[str,...]:
     """ Devuelve una tupla que contiene las carpetas de NW.js a buscar en la carpeta del juego seleccionado """
     return ("locales", "swiftshader")
 
-def delete_folder_content(folder:Path):
+def delete_folder(folder:Path):
     """ Toma un directorio elimina todo su contenido """
     if folder.exists():
-        folder_content = list(folder.iterdir())
-        for item in folder_content:
-            if item.is_dir():
-                try:
-                    shutil.rmtree(item, ignore_errors=True)
-                    print(f"Eliminado directorio: {item.name} de {item.parent}")
-                except Exception as e:
-                    log_exception(e, "delete_folder_content", "rmtree in delete_folder", folder)
-            else:
-                try:
-                    item.unlink()
-                except Exception as e:
-                    log_exception(e, "delete_folder_content", "file unlink", item)
+        try:
+            shutil.rmtree(folder, ignore_errors=True)
+            print(f"Eliminado directorio: {folder}")
+        except Exception as e:
+            log_exception(e, "delete_folder", "rmtree in delete_folder", folder)
 
 def delete_files_in_list(folder: Path, files_to_remove: tuple[str,...]) -> float:
     """ Toma un directorio y una lista, busca en el directorio los archivos que se encuentren en la lista y los elimina """
@@ -273,7 +270,7 @@ def setup_nwjs_game_launcher(project_folder: Path):
 
     # Borrar todos los archivos en rpgm_user_profile
     if rpgm_user_profile.exists():
-        delete_folder_content(rpgm_user_profile)
+        delete_folder(rpgm_user_profile)
 
     # Update package.json
     package_json_path = project_folder / "package.json"
@@ -335,22 +332,46 @@ def get_audio_hz(project_folder:Path, file: Path) -> int:
     # end try
     return hz
 
-def mark_as_optimized(media_file:Path) -> bool:
+def mark_as_optimized_image(file:Path) -> bool:
+    """  Añade el tag BROPTIMIZADO con el método apropiado según el tipo de archivo
+    """
+    im = Image.open(file)
+    mark = get_custom_mark()
+    if im.format in ("PNG", "WEBP"):
+        pnginfo = im.info.copy()
+        pnginfo[mark] = mark
+        im.save(file, pnginfo=pnginfo)    # Sobreescribe el mismo archivo
+        return True
+    elif im.format == "JPEG":
+        exif_bytes = im.info.get("exif", b"")
+        exif_dict = piexif.load(exif_bytes) if exif_bytes else {"Exif": {}} # type: ignore
+        exif_dict["Exif"][piexif.ExifIFD.UserComment] = f"{mark}:{mark}".encode()
+        exif_bytes = piexif.dump(exif_dict) # type: ignore
+        im.save(file, exif=exif_bytes)
+        return True
+    elif im.format == "GIF":
+        im.info["comment"] = f"{mark}:{mark}".encode()
+        im.save(file, save_all=True, comment=im.info["comment"])
+        return True
+    return False
+
+def mark_as_optimized_ffmpeg(file:Path) -> bool:
     """ Copia el flujo de datos (sin recodificar) y añade el tag BROPTIMIZADO.
     """
-    output = media_file.with_stem(f"{media_file.stem}_broptimized")
+    output = file.with_stem(f"{file.stem}_broptimized")
     command:list[str] = [
         "ffmpeg", "-hide_banner", "-loglevel", "quiet",
-        "-y", "-i", str(media_file),
-        "-c", "copy",                        # Copia exacta de audio/video/imagen
-        "-map_metadata", "0",                # Mantiene metadatos originales
-        "-metadata", "comment=BROPTIMIZADO", # Añade la marca
+        "-y",                                   # Sobreescribe archivos de salida
+        "-i", str(file),
+        "-c", "copy",                           # Copia exacta de audio/video/imagen
+        "-map_metadata", "0",                   # Mantiene metadatos originales
+        "-metadata", "comment=BROPTIMIZADO",    # Añade la marca
         str(output)
     ]
     try:
         subprocess.run(command)
-        media_file.unlink()
-        output.rename(media_file)
+        file.unlink()
+        output.rename(file)
         return True
     except Exception as e:
         # TODO
@@ -367,40 +388,25 @@ def compare_and_replace(original:Path, compressed:Path) -> bool:
     if compressed.exists() and original.exists():
         if compressed.stat().st_size < original.stat().st_size:
             try:
+                # Compressed ya está marcado como Optimizado
                 original.unlink()
-                mark_as_optimized(compressed)
                 shutil.move(compressed, original.parent)
             except Exception as e:
                 # TODO
                 print("ERROR compare_and_replace compressed is smaller",e)
         else:
-            try:
-                mark_as_optimized(original)
-                compressed.unlink()
-            except Exception as e:
-                # TODO
-                print("ERROR compare_and_replace original is smaller",e)
+            if original.suffix.lower() in (get_image_extensions()):
+                result = mark_as_optimized_image(original)
+            else:
+                result = mark_as_optimized_ffmpeg(original)
+            if result:
+                try:
+                    compressed.unlink()
+                except Exception as e:
+                    # TODO
+                    print("ERROR compare_and_replace original is smaller",e)
     return True
 # END of function compare_and_replace()
-
-def is_optimized(file:Path)-> bool:
-    """ Verifica la existencia del string "BROPTIMIZADO" dentro del tag comment en un archivo
-    """
-    if file.exists():
-        command:list[str] = [
-            "ffprobe", "-v", "-quiet",
-            "-show_entries", "format_tags=comment",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            str(file)
-        ]
-        try:
-            result = subprocess.run(command, capture_output=True, text=True)
-            return "BROPTIMIZADO" in result.stdout
-        except Exception as e:
-            # TODO
-            print("ERROR",e)
-    return False
-# END of function is_optimized()
 
 def compress_image(project_folder:Path, cwebp_flags:list[str], source:Path):
     # Output será un webp disfrazado de png (u otra extensión del archivo original)
@@ -438,7 +444,10 @@ def compress_audio(project_folder:Path, source:Path):
                 "-c:a", "libvorbis", 
                 "-ar", f"{hz}", 
                 "-q:a", "0", 
-                "-y", f"{output}"
+                "-y",                                   # Sobreescribe archivos de salida
+                "-map_metadata", "0",                   # Mantiene metadatos originales
+                "-metadata", "comment=BROPTIMIZADO",    # Añade una marca
+                f"{output}"
             ]
         if len(command) > 0:
             try:
@@ -499,7 +508,10 @@ def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path
             "-passlogfile", passlog,
             "-c:a", audio_codec,
             "-b:a", f"{audio_bitrate}k",
-            "-y", str(output)
+            "-y",                                   # Sobreescribe archivos de salida
+            "-map_metadata", "0",                   # Mantiene metadatos originales
+            "-metadata", "comment=BROPTIMIZADO",    # Añade la marca
+            str(output)
         ]
         try:
             subprocess.run(cmd2, check=True)
@@ -597,26 +609,72 @@ def get_video_resolution(video_path:Path) -> tuple[int, int]:
     except Exception as e:
         print("Ocurrió un error inesperado - get_video_resolution()", e)
         return 0,0
-
-""" def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path]:
-    source_file_list:list[Path] = []
-    for root, _, files in project_folder.walk():
-        for file in files:
-            if file.lower().endswith(extensions):
-                source_file = root/file
-                if not is_optimized(source_file):
-                    source_file_list.append(source_file)
-    return source_file_list """
+    
+def is_optimized(file:Path) -> bool:
+    """ Verifica la existencia del string "BROPTIMIZADO" dentro del tag comment en un archivo de video o audio
+    """
+    """ TODO Optimizar velocidad de verificación """
+    if file.exists():
+        if file.suffix.lower() in get_image_extensions():
+            mark = get_custom_mark()
+            try:
+                im = Image.open(file)
+                # 1. PNG, WEBP, GIF (info dict)
+                if mark in im.info:
+                    return True
+                # 2. JPEG (EXIF)
+                if "exif" in im.info:
+                    exif_dict:dict = piexif.load(im.info["exif"]) # type: ignore
+                    user_comment = exif_dict.get("Exif", {}).get(piexif.ExifIFD.UserComment, b"") # type: ignore
+                    if mark.encode() in user_comment:
+                        return True
+                # 3. GIF (comment)
+                if im.format == "GIF" and "comment" in im.info:
+                    if mark.encode() in im.info["comment"]:
+                        return True
+            except Exception as e:
+                # TODO
+                print("ERROR is_optimized image", e)
+            return False
+            # end try
+            # END image check
+        else:
+            # BEGIN video and audio check
+            command:list[str] = [
+                "ffprobe", 
+                "-v", "-quiet",
+                "-print_format", "json",
+                "-show_entries", "format_tags=comment",
+                "-of", "json",
+                str(file)
+            ]
+            try:
+                result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if result.returncode != 0:
+                    print("ERROR running ffprobe", result.stderr)
+                    return False
+                data = json.loads(result.stdout)
+                comment = data.get("format", {}).get("tags", {}).get("comment")
+                return comment == get_custom_mark()
+            except Exception as e:
+                # TODO
+                print("ERROR is_optimized video or audio", e)
+    return False
+# END of function is_optimized()
 
 def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path]:
     source_file_list:list[Path] = []
     with ThreadPoolExecutor(max_workers=get_cpu_threads()) as executor:
-        futures = {executor.submit(is_optimized, root/file):root/file 
+        # La función is_optimized toma mucho tiempo en procesar. 
+        # Hasta que una versión más rapida de verificación sea encontrada...
+        # permanecerá sin uso real y retornando False por defecto de forma automática
+        futures = {executor.submit(is_optimized, root/file):root/file
                    for root,_,files in project_folder.walk() 
                    for file in files
                    if file.endswith(extensions)}
         for future in tqdm(as_completed(futures), desc="Filtrando archivos...", total=len(futures)):
-            source_file_list.append(futures[future])
+            if not future:
+                source_file_list.append(futures[future])
     return source_file_list
 
 def create_output_path(project_folder:Path, source_file_list:list[Path]):
@@ -843,7 +901,7 @@ def main_menu(project_folder:Path|None = None):
                     new_project_folder = select_folder("Proyecto")
                     if new_project_folder != project_folder and new_project_folder != None:
                         project_folder = new_project_folder
-                        delete_folder_content(get_compressed_folder(project_folder))
+                        delete_folder(get_compressed_folder(project_folder))
                         initial_project_size = get_folder_size(project_folder)
                         project_processed = False
                 elif project_folder != None:
@@ -854,7 +912,7 @@ def main_menu(project_folder:Path|None = None):
                         process_images(project_folder, get_image_extensions(), cwebp_flags)
                         update_system_json(project_folder, ["hasEncryptedImages"], False)
                         compare_project_size(initial_project_size, get_folder_size(project_folder))
-                        delete_folder_content(get_compressed_folder(project_folder))
+                        delete_folder(get_compressed_folder(project_folder))
                         project_processed = True
                         input("\nTarea Finalizada. Presiona Enter para continuar")
                     elif option_main == 4:
@@ -862,14 +920,14 @@ def main_menu(project_folder:Path|None = None):
                         process_audios(project_folder, get_audio_extensions())
                         update_system_json(project_folder, ["hasEncryptedAudio"], False)
                         compare_project_size(initial_project_size, get_folder_size(project_folder))
-                        delete_folder_content(get_compressed_folder(project_folder))
+                        delete_folder(get_compressed_folder(project_folder))
                         project_processed = True
                         input("\nTarea Finalizada. Presiona Enter para continuar")
                     elif option_main == 5:
                         print("Ejecutando tarea de compresión de videos...")
                         process_videos(project_folder, get_video_extensions(), 600)
                         compare_project_size(initial_project_size, get_folder_size(project_folder))
-                        delete_folder_content(get_compressed_folder(project_folder))
+                        delete_folder(get_compressed_folder(project_folder))
                         project_processed = True
                         input("\nTarea Finalizada. Presiona Enter para continuar")
                     elif option_main == 6:
@@ -879,7 +937,7 @@ def main_menu(project_folder:Path|None = None):
                         process_videos(project_folder, get_video_extensions(), 600)
                         update_system_json(project_folder, ["hasEncryptedImages", "hasEncryptedAudio"], False)
                         compare_project_size(initial_project_size, get_folder_size(project_folder))
-                        delete_folder_content(get_compressed_folder(project_folder))
+                        delete_folder(get_compressed_folder(project_folder))
                         project_processed = True
                         input("\nTarea Finalizada. Presiona Enter para continuar")
                     elif option_main == 7:
@@ -897,7 +955,7 @@ def main_menu(project_folder:Path|None = None):
                         project_processed = True
                 elif option_main == 9:
                     print("Borrando logs...")
-                    delete_folder_content(get_logs_folder())
+                    delete_folder(get_logs_folder())
             else:
                 print(f"Número fuera del rango {str(options_range)}.")
 
@@ -918,10 +976,9 @@ sys.exit()
 # Buscar en System.json: hasEncryptedImages, hasEncryptedAudio, y encryptionKey
 # Desencriptar archivos y volver a encriptarlos de ser necesario
 # Manejar adecuadamente excepciones marcadas con "# TODO"
-# Mejorar selección automática de caldiad de video
 # Añadir presets de calidad de video
-# Añadir conversiín en formato webm
+# Añadir conversión en formato webm
 # Probar conversión de audio en opus
-# Añadir conversiín de audio en mp3 o wav?
+# Añadir conversión de audio en mp3 o wav?
 # Añadir instalación de dependencias como NWJS, FFMPEG, y CWEBP?
 # Otras cosas más...
