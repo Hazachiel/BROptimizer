@@ -673,7 +673,7 @@ def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path
                    for file in files
                    if file.endswith(extensions)}
         for future in tqdm(as_completed(futures), desc="Filtrando archivos...", total=len(futures)):
-            if not future:
+            if not future.result():
                 source_file_list.append(futures[future])
     return source_file_list
 
