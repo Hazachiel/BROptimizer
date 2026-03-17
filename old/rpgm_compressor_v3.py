@@ -100,7 +100,7 @@ def image_processing_allowed(project_folder:Path|None) -> bool:
     else:
         return False
 
-def nwjs_processing_allowed(project_folder:Path|None):
+def nwjs_processing_allowed(project_folder:Path|None) -> bool:
     """ Devuelve True si se cumplen los requisitos para que el programa ejecute las tareas relacionadas a NW.js """
     if nwjs_available() and project_folder != None:
         return True

@@ -1,8 +1,6 @@
 /logs
 /build
 /dist
-media_compressor(drag&drop).py
-rpgm_compressor.spec
-video_compressor.py
-test.py
 /typings
+/tests
+rpgm_compressor.spec
