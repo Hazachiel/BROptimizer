@@ -4,3 +4,4 @@
 /typings
 /tests
 rpgm_compressor.spec
+/bro_modules/__pycache__

@@ -235,8 +235,10 @@ def main_menu(project_folder:Path|None = None):
             print(f"¡Error! Ingresaste algo que no es un número")
         except Exception as e:
             blog.log_exception(e, "Main Menu")
-
-main_menu(bfm.select_folder("Proyecto"))
+try:
+    main_menu(bfm.select_folder("Proyecto"))
+except Exception as e:
+    input(e)
 
 print("=============================================")
 print("Programa terminado. Presione enter para salir")

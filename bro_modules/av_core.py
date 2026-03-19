@@ -9,7 +9,7 @@ from bro_modules import config as bcfg
 def get_audio_hz(project_folder:Path, file: Path) -> int:
     """ Analiza un archivo de audio con ffprobe y devuelve sus hz o 0 si hay error """
     command_ffprobe = [
-        "ffprobe", "-v", "-quiet", "-select_streams", "a:0",
+        "ffprobe", "-v", "quiet", "-select_streams", "a:0",
         "-show_entries", "stream=sample_rate",
         "-of", "default=noprint_wrappers=1:nokey=1",
         f"{file}"
@@ -61,7 +61,7 @@ def optimal_video_quality(source:Path, quality:int, plus:int|float) -> tuple[int
 
 def get_video_kbps(video_path:Path) -> int:
     cmd = [
-        "ffprobe", "-v", "-quiet",
+        "ffprobe", "-v", "quiet",
         "-select_streams", "v:0",
         "-show_entries", "stream=bit_rate",
         "-of", "csv=s=x:p=0", str(video_path)
@@ -86,7 +86,7 @@ def get_video_resolution(video_path:Path) -> tuple[int, int]:
     Retorna ancho y alto si se completó con éxito, None si algo falló.
     """
     cmd = [
-        "ffprobe", "-v", "-quiet",
+        "ffprobe", "-v", "quiet",
         "-select_streams", "v:0",
         "-show_entries", "stream=width,height",
         "-of", "csv=s=x:p=0", str(video_path)
@@ -103,12 +103,12 @@ def get_video_resolution(video_path:Path) -> tuple[int, int]:
         return 0,0
 # END of function get_video_resolution()
 
-def mark_as_optimized_ffmpeg(file:Path) -> bool:
+def mark_as_optimized(file:Path) -> bool:
     """ Copia el flujo de datos (sin recodificar) y añade el tag BROPTIMIZADO.
     """
     output = file.with_stem(f"{file.stem}_broptimized")
-    command:list[str] = [
-        "ffmpeg", "-hide_banner", "-loglevel", "quiet",
+    cmd:list[str] = [
+        "ffmpeg", "-hide_banner", "-v", "quiet",
         "-y",                                   # Sobreescribe archivos de salida
         "-i", str(file),
         "-c", "copy",                           # Copia exacta de audio/video/imagen
@@ -117,18 +117,22 @@ def mark_as_optimized_ffmpeg(file:Path) -> bool:
         str(output)
     ]
     try:
-        subprocess.run(command)
+        subprocess.run(cmd, capture_output=True, check=True)
         file.unlink()
         output.rename(file)
         return True
     except Exception as e:
         # TODO
         print("ERROR in mark_as_optimized subprocess, unlink, rename", e)
+        return False
     # end try
-    return False
 # END of function mark_as_optimized()
 
-def compress_audio(project_folder:Path, source:Path):
+def compress_audio(project_folder:Path, source:Path) -> tuple[Path, Path]|None:
+    """ Ejecuta ffmpeg para comprimir el archivo de audio.
+
+    Devuelve una tupla de source y output (original, comprimido)
+    """
     if source.exists():
         rel_source = source.relative_to(project_folder)
         output = bfm.get_compressed_folder(project_folder)/rel_source
@@ -138,8 +142,8 @@ def compress_audio(project_folder:Path, source:Path):
             hz = 22050
         else:
             hz = 32000
-        command:list[str] = [
-                "ffmpeg", "-hide_banner", "-loglevel", "quiet",
+        cmd:list[str] = [
+                "ffmpeg", "-hide_banner", "-v", "quiet",
                 "-i", f"{source}",
                 "-c:a", "libvorbis", 
                 "-ar", f"{hz}", 
@@ -149,24 +153,23 @@ def compress_audio(project_folder:Path, source:Path):
                 "-metadata", "comment=BROPTIMIZADO",    # Añade una marca
                 f"{output}"
             ]
-        if len(command) > 0:
-            try:
-                subprocess.run(command)
-            except Exception as e:
-                # TODO
-                print("ERROR",e)
-
-            bfm.compare_and_replace(source, output)
+        try:
+            subprocess.run(cmd, check=True)
+            return source, output
+        except Exception as e:
+            # TODO
+            print("ERROR en compress_audio subprocess",e)
+            return None
 # END of function compress_audio()
 
-def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path):
+def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path) -> tuple[Path,Path]|None:
     if source.exists():
         rel_source = source.relative_to(project_folder)
         output = bfm.get_compressed_folder(project_folder)/rel_source.with_suffix(".mp4")
         target_res, video_bitrate, vf_scale = optimal_video_quality(source, quality, plus)
 
         if min(target_res, video_bitrate) == 0 or vf_scale == "":
-            return False
+            return None
         
         audio_bitrate = "48"
         audio_codec = "libopus"
@@ -177,7 +180,7 @@ def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path
         null = "NUL" if os.name == "nt" else "/dev/null"
 
         cmd1:list[str] = [
-            "ffmpeg", "-hide_banner", "-loglevel", "quiet",
+            "ffmpeg", "-hide_banner", "-v", "quiet",
             "-i", str(source),
             "-vf", f"scale={vf_scale}",
             "-c:v", video_codec,
@@ -192,12 +195,12 @@ def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path
             subprocess.run(cmd1, check=True)
         except subprocess.CalledProcessError as e:
             print("Falló Pass 1", e)
-            return False
+            return None
         # end try
 
         # Pass 2
         cmd2:list[str] = [
-            "ffmpeg", "-hide_banner", "-loglevel", "quiet",
+            "ffmpeg", "-hide_banner", "-v", "quiet",
             "-i", str(source),
             "-vf", f"scale={vf_scale}",
             "-c:v", video_codec,
@@ -217,55 +220,83 @@ def compress_video(project_folder:Path, quality:int, plus:int|float, source:Path
             subprocess.run(cmd2, check=True)
         except subprocess.CalledProcessError as e:
             print("Falló Pass 2", e)
-            return False
+            return None
         # end try
-
-        bfm.compare_and_replace(source, output)
-
         # Limpieza
         for passlog_file in [f"{passlog}-0.log", f"{passlog}-0.log.mbtree"]:
             passlog_file = Path(passlog_file)
             if passlog_file.is_file():
                 passlog_file.unlink()
-        return True
+        return source, output
+    return None
 # END of function compress_video()
 
 def process_audios(project_folder:Path):
+    """ Inicia el procesamiento en paralelo de audios dentro de project_folder\n
+    Devuelve una lista de tuplas con los archivos originales y procesados\n
+    return list[tuple[Path,Path]]\n
+    [(original, comprimido),...]
+    """
     print("=== Preparando archivos de audio ===")
     max_threads = bsys.get_cpu_threads()
     source_list = bfm.get_source_list(project_folder, bcfg.get_audio_extensions())
+    result_list:list[tuple[Path,Path]] = []
     if len(source_list) > 0:
         bfm.create_output_path(project_folder, source_list)
         print("=== Iniciando procesamiento de audios ===")
         with ThreadPoolExecutor(max_threads) as executor:
-            futures = {executor.submit(compress_audio, project_folder, source) for source in source_list}
-            for _ in tqdm(as_completed(futures), desc="Comprimiendo audios", total=len(futures)):
+            futures = {executor.submit(compress_audio, project_folder, source)
+                       for source in source_list}
+            for future in tqdm(as_completed(futures), desc="Comprimiendo audios", total=len(futures)):
+                result = future.result()
+                if result:
+                    result_list.append(result)
+    if len(result_list) > 0:
+        print("=== Iniciando comparación de audios ===")
+        with ThreadPoolExecutor(max_threads) as executor:
+            futures = {executor.submit(bfm.compare_and_replace, original, compressed)
+                       for original, compressed in result_list}
+            for _ in tqdm(as_completed(futures), desc="Comparando resultados", total=len(futures)):
                 pass
 # END of function process_audios()
 
 def process_videos(project_folder:Path, quality:int = 600, plus:int|float = 1.15):
+    """ Inicia el procesamiento en paralelo de videos dentro de project_folder\n
+    Devuelve una lista de tuplas con los archivos originales y procesados\n
+    return list[tuple[Path,Path]]\n
+    [(original, comprimido),...]
+    """
     print("=== Preparando archivos de videos ===")
     # Limitación a 1 hilo debido a que el procesamiento de videos es más pesado
     # Se mantiene el formato del código para actualizarlo en el futuro
     max_threads = 1 
     source_list = bfm.get_source_list(project_folder, bcfg.get_video_extensions())
+    result_list:list[tuple[Path,Path]] = []
     if len(source_list) > 0:
         bfm.create_output_path(project_folder, source_list)
         print("=== Iniciando procesamiento de videos ===")
         with ThreadPoolExecutor(max_threads) as executor:
             futures = {executor.submit(compress_video, project_folder, quality, plus, source) for source in source_list}
-            for _ in tqdm(as_completed(futures), desc="Comprimiendo videos", total=len(futures)):
+            for future in tqdm(as_completed(futures), desc="Comprimiendo videos", total=len(futures)):
+                result = future.result()
+                if result:
+                    result_list.append(result)
+    if len(result_list) > 0:
+        print("=== Iniciando comparación de videos ===")
+        with ThreadPoolExecutor(max_threads) as executor:
+            futures = {executor.submit(bfm.compare_and_replace, original, compressed)
+                       for original, compressed in result_list}
+            for _ in tqdm(as_completed(futures), desc="Comparando resultados", total=len(futures)):
                 pass
 # END of function process_videos()
 
 def is_optimized(file:Path) -> bool:
     """ Verifica la existencia del string "BROPTIMIZADO" dentro del tag comment en un archivo de video o audio
     """
-    """ TODO Optimizar velocidad de verificación """
     if file.exists():
         command:list[str] = [
             "ffprobe", 
-            "-v", "-quiet",
+            "-v", "quiet",
             "-print_format", "json",
             "-show_entries", "format_tags=comment",
             "-of", "json",
@@ -280,7 +311,7 @@ def is_optimized(file:Path) -> bool:
             comment = data.get("format", {}).get("tags", {}).get("comment")
             return comment == bcfg.get_custom_mark()
         except Exception as e:
-            # TODO
-            print("ERROR is_optimized video or audio", e)
+            print("ERROR av_core.is_optimized, subprocess", e)
+            return False
     return False
 # END of function is_optimized()

@@ -18,8 +18,8 @@ def get_localappdata() -> Path|None:
     return Path(local_appdata)
 
 def get_script_folder() -> Path:
-    """ Devuelve la ruta actual del programa """
-    return Path(__file__).parent
+    """ Devuelve la ruta actual del programa principal """
+    return Path(__file__).parent.parent
 
 def get_logs_folder() -> Path:
     """ Devuelve la ruta hacia la carpeta logs del programa """
@@ -120,9 +120,9 @@ def delete_folders_in_list(folder: Path, folders_to_remove: tuple[str,...]) -> f
 
 def compare_project_size(original_size:float, new_size:float):
     # Mostrar espacio en disco ahorrado
-    print(f"Tamaño del proyecto originalmente: {original_size}MB")
-    print(f"Espacio Ahorrado tras la compresión: {round(original_size-new_size, ndigits=2)}MB")
-    print(f"Tamaño actual del proyecto: {new_size}MB")
+    print(f"Tamaño del proyecto originalmente:.....{original_size}MB")
+    print(f"Espacio Ahorrado tras la compresión:...{round(original_size-new_size, ndigits=2)}MB")
+    print(f"Tamaño actual del proyecto:............{new_size}MB")
 
 def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path]:
     source_file_list:list[Path] = []
@@ -153,21 +153,28 @@ def compare_and_replace(original:Path, compressed:Path) -> bool:
             try:
                 # Compressed ya está marcado como Optimizado
                 original.unlink()
-                shutil.move(compressed, original.parent)
             except Exception as e:
                 # TODO
-                print("ERROR compare_and_replace compressed is smaller",e)
+                print("ERROR compare_and_replace compressed is smaller")
+                print("----- original.unlink", e)
+            try:
+                compressed.replace(original.with_suffix(compressed.suffix))
+            except Exception as e:
+                print("ERROR compare_and_replace compressed is smaller")
+                print("----- compressed.replace", e)
+            # end try
         else:
             if original.suffix.lower() in (bcfg.get_image_extensions()):
-                result = image_core.mark_as_optimized_image(original)
+                result = image_core.mark_as_optimized(original)
             else:
-                result = av_core.mark_as_optimized_ffmpeg(original)
+                result = av_core.mark_as_optimized(original)
             if result:
                 try:
                     compressed.unlink()
                 except Exception as e:
                     # TODO
                     print("ERROR compare_and_replace original is smaller",e)
+                    print("----- compressed.unlink", e)
     return True
 # END of function compare_and_replace()
     

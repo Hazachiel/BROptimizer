@@ -1,18 +1,14 @@
 import json, shutil
 from pathlib import Path
-from bro_modules import system as bsys
 from bro_modules import file_manager as bfm
 from bro_modules import logger as blog
 
 def setup_nwjs_game_launcher(project_folder: Path):
     """ Realiza la instalación y configuración del launcher personalizado del juego:
-
-     - Crea un directorio para el perfil del juego en una carpeta específica en Local AppData que será la carpeta universal para todos los juegos.
-
-     - Modifica el archivo de configuración json del juego para usar la carpeta creada anteriormente como perfil.
-
-     - Instala el archivo .bat del launcher personalizado dentro de la caerpeta del juego """
-    local_appdata = bsys.get_localappdata()
+    - Crea un directorio para el perfil del juego en una carpeta específica en Local AppData que será la carpeta universal para todos los juegos.
+    - Modifica el archivo de configuración json del juego para usar la carpeta creada anteriormente como perfil.
+    - Instala el archivo .bat del launcher personalizado dentro de la caerpeta del juego """
+    local_appdata = bfm.get_localappdata()
     if local_appdata == None:
         print("Selecciona la carpeta Local que está dentro de AppData")
         print("Usualmente en: C:/Users/(tu usuario)/AppData/Local")
@@ -63,7 +59,7 @@ def setup_nwjs_game_launcher(project_folder: Path):
         blog.log_exception(e,"setup_nwjs_game_launcher", "unknown json error", package_json_path)
     # Update package.json END
 
-    nwjs_game_launcher = bsys.get_script_folder() / "nwjs_game_launch.bat"
+    nwjs_game_launcher = bfm.get_script_folder() / "nwjs_game_launch.bat"
     if not nwjs_game_launcher.exists():
         print("[X] No se encontró el script de lanzamiento del juego con NW.js del sistema")
         print("[X] Asegúrate de que nwjs_game_launch.bat esté en la misma carpeta que este script")
