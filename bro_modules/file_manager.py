@@ -1,8 +1,10 @@
 import shutil, os
 import tkinter as tk
+from tqdm import tqdm
 from tkinter import filedialog
 from pathlib import Path
 from bro_modules import logger as blog
+from bro_modules import config as bcfg
 
 def get_localappdata() -> Path|None:
     """ Devuelve un Path con la dirección de la carpeta ~/AppData/Local, y si no la encuentra devuelve un Path vacio """
@@ -112,10 +114,11 @@ def delete_folders_in_list(folder: Path, folders_to_remove: tuple[str,...]) -> f
                         blog.log_exception(e, "delete_folders_in_list", "rmtree in delete_folder", current_folder)
     return folder_size
 
-def compare_project_size(original_size:float, new_size:float):
+def compare_project_size(project_folder:Path, initial_project_size:float):
     # Mostrar espacio en disco ahorrado
-    print(f"Tamaño del proyecto originalmente:.....{original_size}MB")
-    print(f"Espacio Ahorrado tras la compresión:...{round(original_size-new_size, ndigits=2)}MB")
+    new_size = get_folder_size(project_folder)
+    print(f"Tamaño del proyecto originalmente:.....{initial_project_size}MB")
+    print(f"Espacio Ahorrado hasta ahora:..........{round(initial_project_size-new_size, ndigits=2)}MB")
     print(f"Tamaño actual del proyecto:............{new_size}MB")
 
 def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path]:
@@ -127,6 +130,19 @@ def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path
     return source_file_list
 
 def replace_originals(to_move_list:list[tuple[Path,Path]]):
-    for file_pair in to_move_list:
-            smaller_file, source = file_pair
-            smaller_file.replace(source)
+    for file_pair in tqdm(to_move_list,
+                          desc="Reemplazando archivos",
+                          total=len(to_move_list)):
+        smaller_file, source = file_pair
+        smaller_file.replace(source)
+
+def delete_encrypted_files(project_folder:Path):
+    for root, _, files in project_folder.walk():
+        for file in files:
+            if file.endswith(bcfg.get_encrypted_extensions()):
+                file_path = root/file
+                try:
+                    file_path.unlink(missing_ok=True)
+                except Exception as e:
+                    print("ERROR, del_encrypted_files, file.unlink\n", e)
+                # end try
