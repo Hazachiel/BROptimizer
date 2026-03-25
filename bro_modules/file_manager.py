@@ -31,7 +31,7 @@ def get_game_launch_file() -> Path:
 def get_folder_size(folder:Path) -> float:
     """ Recorre una carpeta y devuelve el peso en MB de todo su contenido """
     size = sum(file.stat().st_size for file in folder.rglob('*') if file.is_file())
-    size = round(size/1000000, ndigits=2)
+    size = round(size/(1024*1024), ndigits=2)
     return size
 
 def subfolder_of(folder:Path, parent:Path) -> bool:
