@@ -130,11 +130,22 @@ def get_source_list(project_folder:Path, extensions:tuple[str,...]) -> list[Path
     return source_file_list
 
 def replace_originals(to_move_list:list[tuple[Path,Path]]):
+    exception_list:list[dict[str,Exception]] = []
     for file_pair in tqdm(to_move_list,
                           desc="Reemplazando archivos",
                           total=len(to_move_list)):
         smaller_file, source = file_pair
-        smaller_file.replace(source)
+        if smaller_file.exists():
+            try:
+                smaller_file.replace(source)
+            except Exception as e:
+                exception_list.append({str(smaller_file)+"\n":e})
+    # Mostrar errores al final
+    if exception_list:
+        print("Ocurrió un problema al mover los siguientes archivos:")
+        for except_data in exception_list:
+            print(f"[X] {except_data}")
+        print("")
 
 def delete_encrypted_files(project_folder:Path):
     for root, _, files in project_folder.walk():
