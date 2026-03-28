@@ -20,44 +20,45 @@ def setup_nwjs_game_launcher(project_folder: Path):
         
     local_appdata= Path(local_appdata)
     rpgm_user_profile = local_appdata/"RPGM/User Data"
-    
-    # Si no existe carpeta de perfil, la creamos
-    if not rpgm_user_profile.exists():
-        rpgm_user_profile.mkdir(parents=True, exist_ok=True)
 
     # Borrar todos los archivos en rpgm_user_profile
     if rpgm_user_profile.exists():
         bfm.delete_folder(rpgm_user_profile)
+    
+    # Si no existe carpeta de perfil, la creamos
+    if not rpgm_user_profile.exists():
+        rpgm_user_profile.mkdir(parents=True, exist_ok=True)
 
     # Update package.json
     package_json_path = project_folder / "package.json"
     if not package_json_path.exists():
         package_json_path = project_folder / "www" / "package.json"
         if not package_json_path.exists():
-            input("No se encontró package.json en el proyecto. Asegúrate de seleccionar la carpeta correcta del proyecto")
-            return
-    try:
-        with package_json_path.open("r", encoding="utf-8") as package_file:
-            json_changed = False
-            package_data = json.load(package_file)
-        if package_data.get("name") != "RPGM":
-            package_data["name"] = "RPGM"
-            json_changed = True
-        if "window" not in package_data:
-            package_data["window"] = {}
-            json_changed = True
-        if package_data.get("window").get("position") != "center":
-            package_data["window"]["position"] = "center"
-            json_changed = True
-        if json_changed:
-            shutil.copy(package_json_path, package_json_path.with_suffix(".backup.json"))
-            with package_json_path.open("w", encoding="utf-8") as package_file:
-                json.dump(package_data, package_file, indent=4, ensure_ascii=False)
-    except json.JSONDecodeError as e:
-        blog.log_exception(e, "setup_nwjs_game_launcher", "json decode", package_json_path)
-    except Exception as e:
-        blog.log_exception(e,"setup_nwjs_game_launcher", "unknown json error", package_json_path)
-    # Update package.json END
+            print("No se encontró package.json en el proyecto. Asegúrate de seleccionar la carpeta correcta del proyecto")
+    
+    if package_json_path.exists():
+        try:
+            with package_json_path.open("r", encoding="utf-8") as package_file:
+                json_changed = False
+                package_data = json.load(package_file)
+            if package_data.get("name") != "RPGM":
+                package_data["name"] = "RPGM"
+                json_changed = True
+            if "window" not in package_data:
+                package_data["window"] = {}
+                json_changed = True
+            if package_data.get("window").get("position") != "center":
+                package_data["window"]["position"] = "center"
+                json_changed = True
+            if json_changed:
+                shutil.copy(package_json_path, package_json_path.with_suffix(".backup.json"))
+                with package_json_path.open("w", encoding="utf-8") as package_file:
+                    json.dump(package_data, package_file, indent=4, ensure_ascii=False)
+        except json.JSONDecodeError as e:
+            blog.log_exception(e, "setup_nwjs_game_launcher", "json decode", package_json_path)
+        except Exception as e:
+            blog.log_exception(e,"setup_nwjs_game_launcher", "unknown json error", package_json_path)
+        # Update package.json END
 
     nwjs_game_launcher = bfm.get_script_folder() / "nwjs_game_launch.bat"
     if not nwjs_game_launcher.exists():
