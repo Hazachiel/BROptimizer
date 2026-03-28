@@ -256,4 +256,20 @@ sys.exit()
 # Probar conversión de audio en opus
 # Añadir conversión de audio en mp3 o wav?
 # Añadir instalación de dependencias como NWJS, FFMPEG, y CWEBP?
+
+""" # Posible modelo para log de errores en threads:
+    exception_list:list[tuple[str,Exception]] = []
+    try:
+        # Alguna tarea
+    except Exception as e:
+        # Guardamos los errores para mostrarlos después
+        exception_list.append("Lo que sea que fallo"+"\n", e)
+# Mostrar errores al final
+if exception_list:
+    print("Ocurrió un problema al intentar hacer algo:")
+    for except_data in exception_list:
+        print(f"[!] o [X] {except_data}")
+    print("") # Para dejar una línea separadora
+"""
+
 # Otras cosas más...
