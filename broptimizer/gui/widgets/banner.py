@@ -39,11 +39,11 @@ class HeaderBanner(QWidget):
         right_box.setSpacing(2)
         right_box.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        author_lbl = QLabel("Creado para optimización extrema")
+        author_lbl = QLabel("Autor: Hazachiel")
         author_lbl.setObjectName("BannerTagline")
         author_lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        github_link = QLabel('<a href="https://github.com" style="color: #60A5FA; text-decoration: none;">GitHub Repository ↗</a>')
+        github_link = QLabel('<a href="https://github.com/Hazachiel/BROptimizer" style="color: #60A5FA; text-decoration: none;">GitHub Repository ↗</a>')
         github_link.setObjectName("BannerLink")
         github_link.setAlignment(Qt.AlignmentFlag.AlignRight)
         github_link.setTextFormat(Qt.TextFormat.RichText)
