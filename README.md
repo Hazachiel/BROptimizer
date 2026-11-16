@@ -111,12 +111,3 @@ Opciones disponibles:
 * `--video-workers {1, 2}`: Límite de videos simultáneos.
 * `--threads N`: Número de hilos para imágenes y audios.
 * `--no-tag`: Desactiva la marca de metadata `BROptimized`.
-
-\---
-
-## 🧪 Pruebas Automatizadas
-
-```bash
-python -m unittest discover tests
-```
-
