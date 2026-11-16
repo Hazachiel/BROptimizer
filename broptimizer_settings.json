@@ -4,7 +4,7 @@
   "threads_image": 4,
   "threads_audio": 4,
   "threads_video": 1,
-  "temp_folder_custom": "C:/-.Temp/TESTS/probando",
+  "temp_folder_custom": "",
   "use_custom_temp": false,
   "webp_quality": 82,
   "webp_method": 6,
